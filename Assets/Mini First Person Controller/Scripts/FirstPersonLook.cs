@@ -1,5 +1,6 @@
 using UnityEngine;
 using UnityEngine.Rendering.Universal;
+using UnityEngine.EventSystems;
 
 public class FirstPersonLook : MonoBehaviour
 {
@@ -16,11 +17,22 @@ public class FirstPersonLook : MonoBehaviour
     public Vector3 topDownEulerAngles = new Vector3(55f, 0f, 0f);
     public float topDownFieldOfView = 60f;
 
+
+    [Header("Zoom Settings")]
+    public float zoomSensitivity = 5f;
+    // Zoom cho góc nhìn thứ nhất (thay đổi FOV)
+    public float minFOV = 30f;
+    public float maxFOV = 90f;
+    // Zoom cho Top-down (thay đổi độ cao/offset)
+    public float minHeight = 3f;
+    public float maxHeight = 20f;
     Camera firstPersonCamera;
     Camera topDownCamera;
     bool isTopDownView;
     Vector2 velocity;
     Vector2 frameVelocity;
+    // Một biến để tách input
+    FirstPersonMovement movementScript;
 
 
     void Reset()
@@ -36,6 +48,7 @@ public class FirstPersonLook : MonoBehaviour
     void Awake()
     {
         firstPersonCamera = GetComponent<Camera>();
+        movementScript = GetComponentInParent<FirstPersonMovement>(); // ✅ THÊM
 
         if (character == null)
         {
@@ -54,14 +67,24 @@ public class FirstPersonLook : MonoBehaviour
     void Start()
     {
         // Lock the mouse cursor to the game screen.
-        Cursor.lockState = CursorLockMode.Locked;
-        Cursor.visible = false;
+        // Cursor.lockState = CursorLockMode.Locked;
+        // Cursor.visible = false;
+
+        // Không lock mà update chuột để đổi mode cam
+        UpdateCursorState();
     }
 
     void Update()
     {
         HandleViewToggle();
+        HandleZoom(); // Gọi hàm xử lý zoom mỗi khung hình
 
+        // nếu đang top-down thì KHÔNG xoay camera
+        if (isTopDownView) return;
+
+        // nếu đang click UI thì KHÔNG xoay camera
+        if (EventSystem.current != null && EventSystem.current.IsPointerOverGameObject())
+            return; 
         // Get smooth velocity.
         Vector2 mouseDelta = new Vector2(Input.GetAxisRaw("Mouse X"), Input.GetAxisRaw("Mouse Y"));
         Vector2 rawFrameVelocity = Vector2.Scale(mouseDelta, Vector2.one * sensitivity);
@@ -121,6 +144,33 @@ public class FirstPersonLook : MonoBehaviour
         }
     }
 
+    // --- HÀM XỬ LÝ ZOOM MỚI ---
+    void HandleZoom()
+    {
+        float scroll = Input.GetAxis("Mouse ScrollWheel");
+        if (Mathf.Abs(scroll) < 0.01f) return;
+
+        if (isTopDownView)
+        {
+            // Zoom Top-down bằng cách thay đổi độ cao của offset (trục Y)
+            // và tỉ lệ thuận trục Z để giữ góc nhìn ổn định
+            float zoomAmount = scroll * zoomSensitivity;
+            float currentHeight = topDownOffset.y;
+            float newHeight = Mathf.Clamp(currentHeight - zoomAmount, minHeight, maxHeight);
+            
+            // Tính toán tỉ lệ để lùi camera ra xa khi lên cao
+            float ratio = newHeight / currentHeight;
+            topDownOffset.y = newHeight;
+            topDownOffset.z *= ratio; 
+        }
+        else
+        {
+            // Zoom First Person bằng cách thay đổi Field of View
+            float currentFOV = firstPersonCamera.fieldOfView;
+            firstPersonCamera.fieldOfView = Mathf.Clamp(currentFOV - (scroll * zoomSensitivity * 10), minFOV, maxFOV);
+        }
+    }
+
     void HandleViewToggle()
     {
         if (topDownCamera == null || !Input.GetKeyDown(switchViewKey))
@@ -130,6 +180,7 @@ public class FirstPersonLook : MonoBehaviour
 
         isTopDownView = !isTopDownView;
         ApplyViewState();
+        UpdateCursorState(); // cập nhật chuột khi đổi mode
     }
 
     void CreateTopDownCameraIfNeeded()
@@ -169,6 +220,26 @@ public class FirstPersonLook : MonoBehaviour
         if (topDownCamera != null)
         {
             topDownCamera.enabled = isTopDownView;
+        }
+
+            // ✅ THÊM: bật/tắt movement theo mode
+        if (movementScript != null)
+        {
+            movementScript.enabled = !isTopDownView;
+        }
+    }
+
+        void UpdateCursorState()
+    {
+        if (isTopDownView)
+        {
+            Cursor.lockState = CursorLockMode.None; // chuột tự do
+            Cursor.visible = true;
+        }
+        else
+        {
+            Cursor.lockState = CursorLockMode.Locked; // khóa chuột
+            Cursor.visible = false;
         }
     }
 }
