@@ -11,7 +11,12 @@ public class FirstPersonMovement : MonoBehaviour
     public float runSpeed = 9;
     public KeyCode runningKey = KeyCode.LeftShift;
 
-    Rigidbody rigidbody;
+    [Header("Room Bounds")]
+    public bool constrainToRoom = true;
+    public float roomBoundaryPadding = 0.45f;
+
+    Rigidbody body;
+    FloorController floorController;
     /// <summary> Functions to override movement speed. Will use the last added override. </summary>
     public List<System.Func<float>> speedOverrides = new List<System.Func<float>>();
 
@@ -20,7 +25,8 @@ public class FirstPersonMovement : MonoBehaviour
     void Awake()
     {
         // Get the rigidbody on this.
-        rigidbody = GetComponent<Rigidbody>();
+        body = GetComponent<Rigidbody>();
+        floorController = FindFirstObjectByType<FloorController>();
     }
 
     void FixedUpdate()
@@ -39,6 +45,36 @@ public class FirstPersonMovement : MonoBehaviour
         Vector2 targetVelocity =new Vector2( Input.GetAxis("Horizontal") * targetMovingSpeed, Input.GetAxis("Vertical") * targetMovingSpeed);
 
         // Apply movement.
-        rigidbody.linearVelocity = transform.rotation * new Vector3(targetVelocity.x, rigidbody.linearVelocity.y, targetVelocity.y);
+        body.linearVelocity = transform.rotation * new Vector3(targetVelocity.x, body.linearVelocity.y, targetVelocity.y);
+        ApplyRoomBounds();
+    }
+
+    void ApplyRoomBounds()
+    {
+        if (!constrainToRoom)
+        {
+            return;
+        }
+
+        if (floorController == null)
+        {
+            floorController = FindFirstObjectByType<FloorController>();
+        }
+
+        if (floorController == null)
+        {
+            return;
+        }
+
+        Vector3 currentPosition = body.position;
+        Vector3 clampedPosition = floorController.ClampPointToRoom(currentPosition, roomBoundaryPadding);
+
+        if ((clampedPosition - currentPosition).sqrMagnitude < 0.0001f)
+        {
+            return;
+        }
+
+        body.position = clampedPosition;
+        body.linearVelocity = new Vector3(0f, body.linearVelocity.y, 0f);
     }
 }

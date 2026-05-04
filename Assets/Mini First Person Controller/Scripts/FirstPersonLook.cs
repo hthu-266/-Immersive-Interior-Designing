@@ -11,7 +11,7 @@ public class FirstPersonLook : MonoBehaviour
     public float smoothing = 1.5f;
 
     [Header("View Switching")]
-    public KeyCode switchViewKey = KeyCode.V;
+    public KeyCode switchViewKey = KeyCode.V; // Key to switch between first person and top down view.
     public bool startInTopDownView = false;
     public Vector3 topDownOffset = new Vector3(0f, 8f, -6f);
     public Vector3 topDownEulerAngles = new Vector3(55f, 0f, 0f);
