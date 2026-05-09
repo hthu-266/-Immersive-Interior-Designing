@@ -5,7 +5,7 @@ public class MovableFurniture : MonoBehaviour
 {
     [Header("Placement")]
     public bool isMovable = true;
-    public bool snapToGrid = true;
+    public bool snapToGrid = false;
     public float gridSize = 0.25f;
     public float boundaryPadding = 0.15f;
     public float rotationStep = 15f;
@@ -110,20 +110,32 @@ public class MovableFurniture : MonoBehaviour
 
     public void EnsureCollider()
     {
-        if (GetComponentInChildren<Collider>() != null)
+        if (GetComponentInChildren<MeshCollider>() != null)
         {
             return;
         }
 
-        Bounds bounds = GetWorldBounds();
-        BoxCollider boxCollider = gameObject.AddComponent<BoxCollider>();
-        boxCollider.center = transform.InverseTransformPoint(bounds.center);
+        MeshFilter[] meshFilters = GetComponentsInChildren<MeshFilter>();
 
-        Vector3 lossyScale = transform.lossyScale;
-        boxCollider.size = new Vector3(
-            SafeDivide(bounds.size.x, lossyScale.x),
-            SafeDivide(bounds.size.y, lossyScale.y),
-            SafeDivide(bounds.size.z, lossyScale.z));
+        foreach (MeshFilter meshFilter in meshFilters)
+        {
+            if (meshFilter.sharedMesh == null)
+            {
+                continue;
+            }
+
+            MeshCollider meshCollider =
+                meshFilter.gameObject.GetComponent<MeshCollider>();
+
+            if (meshCollider == null)
+            {
+                meshCollider =
+                    meshFilter.gameObject.AddComponent<MeshCollider>();
+            }
+
+            meshCollider.sharedMesh = meshFilter.sharedMesh;
+            meshCollider.convex = true;
+        }
     }
 
     void CacheComponents()

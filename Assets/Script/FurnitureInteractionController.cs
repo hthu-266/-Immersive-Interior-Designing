@@ -12,12 +12,15 @@ public class FurnitureInteractionController : MonoBehaviour
     public TMP_Text statusText;
 
     [Header("Input")]
+
+    public LayerMask furnitureLayer  = ~0;
     public KeyCode rotateLeftKey = KeyCode.Q;
     public KeyCode rotateRightKey = KeyCode.E;
     public KeyCode cancelKey = KeyCode.Escape;
     public KeyCode snapToggleKey = KeyCode.G;
     public float nudgeStep = 0.25f;
     public float maxRayDistance = 200f;
+
 
     [Header("Registration")]
     public bool autoRegisterSceneFurniture = true;
@@ -26,6 +29,7 @@ public class FurnitureInteractionController : MonoBehaviour
     MovableFurniture selectedFurniture;
     bool isDragging;
     Vector3 dragOffset;
+    Plane dragPlane;
 
     public event Action<MovableFurniture> SelectionChanged;
 
@@ -34,6 +38,11 @@ public class FurnitureInteractionController : MonoBehaviour
     void Awake()
     {
         ResolveReferences();
+
+        if (furnitureLayer == ~0)
+        {
+            furnitureLayer = LayerMask.GetMask("Furniture");
+        }
     }
 
     void Start()
@@ -246,7 +255,7 @@ public class FurnitureInteractionController : MonoBehaviour
         furniture = null;
 
         Ray ray = BuildPointerRay();
-        if (!Physics.Raycast(ray, out hit, maxRayDistance, ~0, QueryTriggerInteraction.Ignore))
+        if (!Physics.Raycast(ray, out hit, maxRayDistance, furnitureLayer, QueryTriggerInteraction.Ignore))
         {
             return false;
         }
@@ -262,13 +271,17 @@ public class FurnitureInteractionController : MonoBehaviour
             return;
         }
 
-        if (TryGetFloorPoint(out Vector3 floorPoint))
+        dragPlane = new Plane(
+            Vector3.up,
+            selectedFurniture.transform.position
+        );
+
+        Ray ray = BuildPointerRay();
+
+        if (dragPlane.Raycast(ray, out float distance))
         {
-            dragOffset = selectedFurniture.transform.position - floorPoint;
-        }
-        else
-        {
-            dragOffset = selectedFurniture.transform.position - hitPoint;
+            Vector3 dragPoint = ray.GetPoint(distance);
+            dragOffset = selectedFurniture.transform.position - dragPoint;
         }
 
         isDragging = true;
@@ -277,13 +290,18 @@ public class FurnitureInteractionController : MonoBehaviour
 
     void DragSelectedFurniture()
     {
-        if (!TryGetFloorPoint(out Vector3 floorPoint))
+        Ray ray = BuildPointerRay();
+
+        if (!dragPlane.Raycast(ray, out float distance))
         {
             return;
         }
 
-        Vector3 targetPosition = floorPoint + dragOffset;
+        Vector3 dragPoint = ray.GetPoint(distance);
+        Vector3 targetPosition = dragPoint + dragOffset;
+
         selectedFurniture.MoveTo(targetPosition, floorController);
+
         UpdateStatus();
     }
 
@@ -324,11 +342,7 @@ public class FurnitureInteractionController : MonoBehaviour
 
     Ray BuildPointerRay()
     {
-        Vector3 pointerPosition = Cursor.lockState == CursorLockMode.Locked
-            ? new Vector3(Screen.width * 0.5f, Screen.height * 0.5f, 0f)
-            : Input.mousePosition;
-
-        return interactionCamera.ScreenPointToRay(pointerPosition);
+       return interactionCamera.ScreenPointToRay(Input.mousePosition);
     }
 
     bool IsPointerOverUI()
