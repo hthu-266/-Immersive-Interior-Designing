@@ -3,6 +3,8 @@ using UnityEngine;
 [DisallowMultipleComponent]
 public class MovableFurniture : MonoBehaviour
 {
+    const string SelectionProxyName = "Furniture Selection Proxy";
+
     [Header("Placement")]
     public bool isMovable = true;
     public bool snapToGrid = false;
@@ -15,6 +17,7 @@ public class MovableFurniture : MonoBehaviour
 
     Renderer[] cachedRenderers;
     Rigidbody cachedRigidbody;
+    BoxCollider selectionProxyCollider;
     bool wasKinematic;
     bool isSelected;
     MaterialPropertyBlock selectedBlock;
@@ -108,13 +111,25 @@ public class MovableFurniture : MonoBehaviour
         return radius + boundaryPadding;
     }
 
-    public void EnsureCollider()
+    public void EnsureInteractionSetup(int interactionLayer, bool assignLayer, bool createSelectionProxy)
     {
-        if (GetComponentInChildren<MeshCollider>() != null)
+        CacheComponents();
+
+        if (assignLayer && interactionLayer >= 0)
         {
-            return;
+            ApplyLayerRecursively(transform, interactionLayer);
         }
 
+        EnsureCollider();
+
+        if (createSelectionProxy)
+        {
+            EnsureSelectionProxy(interactionLayer, assignLayer);
+        }
+    }
+
+    public void EnsureCollider()
+    {
         MeshFilter[] meshFilters = GetComponentsInChildren<MeshFilter>();
 
         foreach (MeshFilter meshFilter in meshFilters)
@@ -124,13 +139,10 @@ public class MovableFurniture : MonoBehaviour
                 continue;
             }
 
-            MeshCollider meshCollider =
-                meshFilter.gameObject.GetComponent<MeshCollider>();
-
+            MeshCollider meshCollider = meshFilter.gameObject.GetComponent<MeshCollider>();
             if (meshCollider == null)
             {
-                meshCollider =
-                    meshFilter.gameObject.AddComponent<MeshCollider>();
+                meshCollider = meshFilter.gameObject.AddComponent<MeshCollider>();
             }
 
             meshCollider.sharedMesh = meshFilter.sharedMesh;
@@ -138,10 +150,42 @@ public class MovableFurniture : MonoBehaviour
         }
     }
 
+    public Bounds GetWorldBounds()
+    {
+        if (cachedRenderers == null || cachedRenderers.Length == 0)
+        {
+            CacheComponents();
+        }
+
+        Bounds bounds = new Bounds(transform.position, Vector3.one);
+        bool initialized = false;
+
+        foreach (Renderer renderer in cachedRenderers)
+        {
+            if (renderer == null || !renderer.enabled)
+            {
+                continue;
+            }
+
+            if (!initialized)
+            {
+                bounds = renderer.bounds;
+                initialized = true;
+            }
+            else
+            {
+                bounds.Encapsulate(renderer.bounds);
+            }
+        }
+
+        return bounds;
+    }
+
     void CacheComponents()
     {
         cachedRenderers = GetComponentsInChildren<Renderer>();
         cachedRigidbody = GetComponent<Rigidbody>();
+        selectionProxyCollider = FindSelectionProxyCollider();
     }
 
     void ApplySelectionState()
@@ -176,45 +220,116 @@ public class MovableFurniture : MonoBehaviour
         }
     }
 
-    Bounds GetWorldBounds()
+    void EnsureSelectionProxy(int interactionLayer, bool assignLayer)
+    {
+        if (!TryGetLocalRenderBounds(out Bounds localBounds))
+        {
+            return;
+        }
+
+        if (selectionProxyCollider == null)
+        {
+            selectionProxyCollider = CreateSelectionProxyCollider();
+        }
+
+        if (selectionProxyCollider == null)
+        {
+            return;
+        }
+
+        if (assignLayer && interactionLayer >= 0)
+        {
+            selectionProxyCollider.gameObject.layer = interactionLayer;
+        }
+
+        selectionProxyCollider.isTrigger = true;
+        selectionProxyCollider.center = localBounds.center;
+        selectionProxyCollider.size = new Vector3(
+            Mathf.Max(localBounds.size.x, 0.05f),
+            Mathf.Max(localBounds.size.y, 0.05f),
+            Mathf.Max(localBounds.size.z, 0.05f));
+    }
+
+    BoxCollider FindSelectionProxyCollider()
+    {
+        Transform proxyTransform = transform.Find(SelectionProxyName);
+        return proxyTransform != null ? proxyTransform.GetComponent<BoxCollider>() : null;
+    }
+
+    BoxCollider CreateSelectionProxyCollider()
+    {
+        GameObject proxyObject = new GameObject(SelectionProxyName);
+        proxyObject.transform.SetParent(transform, false);
+        proxyObject.transform.localPosition = Vector3.zero;
+        proxyObject.transform.localRotation = Quaternion.identity;
+        proxyObject.transform.localScale = Vector3.one;
+        return proxyObject.AddComponent<BoxCollider>();
+    }
+
+    bool TryGetLocalRenderBounds(out Bounds localBounds)
     {
         if (cachedRenderers == null || cachedRenderers.Length == 0)
         {
             CacheComponents();
         }
 
-        Bounds bounds = new Bounds(transform.position, Vector3.one);
+        localBounds = new Bounds(Vector3.zero, Vector3.one);
         bool initialized = false;
 
         foreach (Renderer renderer in cachedRenderers)
         {
-            if (renderer == null)
+            if (renderer == null || !renderer.enabled)
             {
                 continue;
             }
 
-            if (!initialized)
-            {
-                bounds = renderer.bounds;
-                initialized = true;
-            }
-            else
-            {
-                bounds.Encapsulate(renderer.bounds);
-            }
+            EncapsulateRendererBounds(renderer.bounds, ref localBounds, ref initialized);
         }
 
-        return bounds;
+        return initialized;
+    }
+
+    void EncapsulateRendererBounds(Bounds worldBounds, ref Bounds localBounds, ref bool initialized)
+    {
+        for (int x = 0; x <= 1; x++)
+        {
+            for (int y = 0; y <= 1; y++)
+            {
+                for (int z = 0; z <= 1; z++)
+                {
+                    Vector3 worldCorner = new Vector3(
+                        x == 0 ? worldBounds.min.x : worldBounds.max.x,
+                        y == 0 ? worldBounds.min.y : worldBounds.max.y,
+                        z == 0 ? worldBounds.min.z : worldBounds.max.z);
+                    Vector3 localCorner = transform.InverseTransformPoint(worldCorner);
+
+                    if (!initialized)
+                    {
+                        localBounds = new Bounds(localCorner, Vector3.zero);
+                        initialized = true;
+                    }
+                    else
+                    {
+                        localBounds.Encapsulate(localCorner);
+                    }
+                }
+            }
+        }
+    }
+
+    void ApplyLayerRecursively(Transform root, int layer)
+    {
+        root.gameObject.layer = layer;
+
+        foreach (Transform child in root)
+        {
+            ApplyLayerRecursively(child, layer);
+        }
     }
 
     float Snap(float value)
     {
         float size = Mathf.Max(0.05f, gridSize);
         return Mathf.Round(value / size) * size;
-    }
-
-    float SafeDivide(float value, float divisor)
-    {
-        return Mathf.Abs(divisor) < 0.0001f ? value : value / Mathf.Abs(divisor);
     }
 }

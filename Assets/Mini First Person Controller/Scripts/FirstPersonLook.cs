@@ -1,6 +1,6 @@
 using UnityEngine;
-using UnityEngine.Rendering.Universal;
 using UnityEngine.EventSystems;
+using UnityEngine.Rendering.Universal;
 
 public class FirstPersonLook : MonoBehaviour
 {
@@ -11,33 +11,41 @@ public class FirstPersonLook : MonoBehaviour
     public float smoothing = 1.5f;
 
     [Header("View Switching")]
-    public KeyCode switchViewKey = KeyCode.V; // Key to switch between first person and top down view.
+    public KeyCode switchViewKey = KeyCode.V;
     public bool startInTopDownView = false;
-    public Vector3 topDownOffset = new Vector3(0f, 8f, -6f);
-    public Vector3 topDownEulerAngles = new Vector3(55f, 0f, 0f);
+    public Vector3 topDownOffset = new Vector3(0f, 18f, 0f);
+    public Vector3 topDownEulerAngles = new Vector3(90f, 0f, 0f);
     public float topDownFieldOfView = 60f;
 
+    [Header("Top Down View")]
+    public bool useOrthographicTopDown = true;
+    public bool fitRoomOnFirstTopDownView = true;
+    public float topDownOrthographicSize = 8f;
+    public float minTopDownOrthographicSize = 2f;
+    public float maxTopDownOrthographicSize = 30f;
+    public float roomFitPadding = 1f;
 
     [Header("Zoom Settings")]
     public float zoomSensitivity = 5f;
-    // Zoom cho góc nhìn thứ nhất (thay đổi FOV)
     public float minFOV = 30f;
     public float maxFOV = 90f;
-    // Zoom cho Top-down (thay đổi độ cao/offset)
     public float minHeight = 3f;
-    public float maxHeight = 20f;
+    public float maxHeight = 30f;
+
+    [Header("Furniture Interaction")]
+    public bool freezeLookWhileDraggingFurniture = true;
+
     Camera firstPersonCamera;
     Camera topDownCamera;
     bool isTopDownView;
+    bool hasFittedTopDownSize;
     Vector2 velocity;
     Vector2 frameVelocity;
-    // Một biến để tách input
     FirstPersonMovement movementScript;
-
+    FloorController floorController;
 
     void Reset()
     {
-        // Get the character from the FirstPersonMovement in parents.
         FirstPersonMovement movement = GetComponentInParent<FirstPersonMovement>();
         if (movement != null)
         {
@@ -48,7 +56,8 @@ public class FirstPersonLook : MonoBehaviour
     void Awake()
     {
         firstPersonCamera = GetComponent<Camera>();
-        movementScript = GetComponentInParent<FirstPersonMovement>(); // ✅ THÊM
+        movementScript = GetComponentInParent<FirstPersonMovement>();
+        floorController = FindFirstObjectByType<FloorController>();
 
         if (character == null)
         {
@@ -66,26 +75,38 @@ public class FirstPersonLook : MonoBehaviour
 
     void Start()
     {
-        // Lock the mouse cursor to the game screen.
-        // Cursor.lockState = CursorLockMode.Locked;
-        // Cursor.visible = false;
+        if (isTopDownView && fitRoomOnFirstTopDownView)
+        {
+            FitTopDownSizeToRoom();
+            hasFittedTopDownSize = true;
+            ApplyTopDownProjection();
+            ApplyTopDownCameraTransform();
+        }
 
-        // Không lock mà update chuột để đổi mode cam
         UpdateCursorState();
     }
 
     void Update()
     {
         HandleViewToggle();
-        HandleZoom(); // Gọi hàm xử lý zoom mỗi khung hình
+        HandleZoom();
 
-        // nếu đang top-down thì KHÔNG xoay camera
-        if (isTopDownView) return;
+        if (isTopDownView)
+        {
+            return;
+        }
 
-        // nếu đang click UI thì KHÔNG xoay camera
+        if (freezeLookWhileDraggingFurniture && FurnitureInteractionController.AnyFurnitureDragActive)
+        {
+            frameVelocity = Vector2.zero;
+            return;
+        }
+
         if (EventSystem.current != null && EventSystem.current.IsPointerOverGameObject())
-            return; 
-        // Get smooth velocity.
+        {
+            return;
+        }
+
         Vector2 mouseDelta = new Vector2(Input.GetAxisRaw("Mouse X"), Input.GetAxisRaw("Mouse Y"));
         Vector2 rawFrameVelocity = Vector2.Scale(mouseDelta, Vector2.one * sensitivity);
         frameVelocity = Vector2.Lerp(frameVelocity, rawFrameVelocity, 1 / smoothing);
@@ -97,21 +118,13 @@ public class FirstPersonLook : MonoBehaviour
             return;
         }
 
-        // Rotate camera up-down and controller left-right from velocity.
         transform.localRotation = Quaternion.AngleAxis(-velocity.y, Vector3.right);
         character.localRotation = Quaternion.AngleAxis(velocity.x, Vector3.up);
     }
 
     void LateUpdate()
     {
-        if (topDownCamera == null)
-        {
-            return;
-        }
-
-        Vector3 anchorPosition = character != null ? character.position : transform.position;
-        topDownCamera.transform.position = anchorPosition + topDownOffset;
-        topDownCamera.transform.rotation = Quaternion.Euler(topDownEulerAngles);
+        ApplyTopDownCameraTransform();
     }
 
     void OnDisable()
@@ -144,30 +157,40 @@ public class FirstPersonLook : MonoBehaviour
         }
     }
 
-    // --- HÀM XỬ LÝ ZOOM MỚI ---
     void HandleZoom()
     {
         float scroll = Input.GetAxis("Mouse ScrollWheel");
-        if (Mathf.Abs(scroll) < 0.01f) return;
+        if (Mathf.Abs(scroll) < 0.01f || IsPointerOverUI())
+        {
+            return;
+        }
 
         if (isTopDownView)
         {
-            // Zoom Top-down bằng cách thay đổi độ cao của offset (trục Y)
-            // và tỉ lệ thuận trục Z để giữ góc nhìn ổn định
-            float zoomAmount = scroll * zoomSensitivity;
-            float currentHeight = topDownOffset.y;
-            float newHeight = Mathf.Clamp(currentHeight - zoomAmount, minHeight, maxHeight);
-            
-            // Tính toán tỉ lệ để lùi camera ra xa khi lên cao
-            float ratio = newHeight / currentHeight;
-            topDownOffset.y = newHeight;
-            topDownOffset.z *= ratio; 
+            if (useOrthographicTopDown && topDownCamera != null)
+            {
+                topDownOrthographicSize = Mathf.Clamp(
+                    topDownOrthographicSize - scroll * zoomSensitivity,
+                    minTopDownOrthographicSize,
+                    maxTopDownOrthographicSize);
+                topDownCamera.orthographicSize = topDownOrthographicSize;
+            }
+            else
+            {
+                float newHeight = Mathf.Clamp(topDownOffset.y - scroll * zoomSensitivity, minHeight, maxHeight);
+                topDownOffset = new Vector3(0f, newHeight, 0f);
+            }
+
+            ApplyTopDownCameraTransform();
+            return;
         }
-        else
+
+        if (firstPersonCamera != null)
         {
-            // Zoom First Person bằng cách thay đổi Field of View
-            float currentFOV = firstPersonCamera.fieldOfView;
-            firstPersonCamera.fieldOfView = Mathf.Clamp(currentFOV - (scroll * zoomSensitivity * 10), minFOV, maxFOV);
+            firstPersonCamera.fieldOfView = Mathf.Clamp(
+                firstPersonCamera.fieldOfView - scroll * zoomSensitivity * 10f,
+                minFOV,
+                maxFOV);
         }
     }
 
@@ -180,7 +203,7 @@ public class FirstPersonLook : MonoBehaviour
 
         isTopDownView = !isTopDownView;
         ApplyViewState();
-        UpdateCursorState(); // cập nhật chuột khi đổi mode
+        UpdateCursorState();
     }
 
     void CreateTopDownCameraIfNeeded()
@@ -200,12 +223,11 @@ public class FirstPersonLook : MonoBehaviour
         }
 
         topDownCamera.CopyFrom(firstPersonCamera);
-        topDownCamera.fieldOfView = topDownFieldOfView;
+        topDownCamera.depth = firstPersonCamera.depth + 10f;
         topDownCamera.enabled = false;
 
-        Vector3 anchorPosition = character != null ? character.position : transform.position;
-        topDownCamera.transform.position = anchorPosition + topDownOffset;
-        topDownCamera.transform.rotation = Quaternion.Euler(topDownEulerAngles);
+        ApplyTopDownProjection();
+        ApplyTopDownCameraTransform();
     }
 
     void ApplyViewState()
@@ -219,27 +241,113 @@ public class FirstPersonLook : MonoBehaviour
 
         if (topDownCamera != null)
         {
+            if (isTopDownView && fitRoomOnFirstTopDownView && !hasFittedTopDownSize)
+            {
+                FitTopDownSizeToRoom();
+                hasFittedTopDownSize = true;
+            }
+
+            ApplyTopDownProjection();
+            ApplyTopDownCameraTransform();
             topDownCamera.enabled = isTopDownView;
         }
 
-            // ✅ THÊM: bật/tắt movement theo mode
         if (movementScript != null)
         {
             movementScript.enabled = !isTopDownView;
         }
     }
 
-        void UpdateCursorState()
+    void ApplyTopDownProjection()
+    {
+        if (topDownCamera == null)
+        {
+            return;
+        }
+
+        topDownCamera.orthographic = useOrthographicTopDown;
+        topDownCamera.fieldOfView = topDownFieldOfView;
+        topDownCamera.orthographicSize = topDownOrthographicSize;
+    }
+
+    void ApplyTopDownCameraTransform()
+    {
+        if (topDownCamera == null)
+        {
+            return;
+        }
+
+        Vector3 anchor = GetTopDownAnchor();
+        float height = Mathf.Clamp(Mathf.Abs(topDownOffset.y), minHeight, maxHeight);
+        topDownOffset = new Vector3(0f, height, 0f);
+
+        topDownCamera.transform.position = new Vector3(anchor.x, anchor.y + height, anchor.z);
+        topDownCamera.transform.rotation = Quaternion.Euler(90f, topDownEulerAngles.y, 0f);
+    }
+
+    Vector3 GetTopDownAnchor()
+    {
+        if (floorController == null)
+        {
+            floorController = FindFirstObjectByType<FloorController>();
+        }
+
+        if (floorController != null)
+        {
+            Vector3 floorPosition = floorController.transform.position;
+            Bounds roomBounds = floorController.GetRoomBounds();
+            return new Vector3(roomBounds.center.x, floorPosition.y, roomBounds.center.z);
+        }
+
+        if (character != null)
+        {
+            return character.position;
+        }
+
+        return transform.position;
+    }
+
+    void FitTopDownSizeToRoom()
+    {
+        if (floorController == null)
+        {
+            floorController = FindFirstObjectByType<FloorController>();
+        }
+
+        if (floorController == null)
+        {
+            return;
+        }
+
+        float aspect = Screen.height > 0 ? (float)Screen.width / Screen.height : 1f;
+        aspect = Mathf.Max(aspect, 0.01f);
+        float fitSize = Mathf.Max(floorController.Length * 0.5f, floorController.Width * 0.5f / aspect) + roomFitPadding;
+        topDownOrthographicSize = Mathf.Clamp(fitSize, minTopDownOrthographicSize, maxTopDownOrthographicSize);
+
+        if (topDownCamera != null)
+        {
+            topDownCamera.orthographicSize = topDownOrthographicSize;
+        }
+    }
+
+    void UpdateCursorState()
     {
         if (isTopDownView)
         {
-            Cursor.lockState = CursorLockMode.None; // chuột tự do
+            Cursor.lockState = CursorLockMode.None;
             Cursor.visible = true;
         }
         else
         {
-            Cursor.lockState = CursorLockMode.Locked; // khóa chuột
+            Cursor.lockState = CursorLockMode.Locked;
             Cursor.visible = false;
         }
+    }
+
+    bool IsPointerOverUI()
+    {
+        return Cursor.lockState != CursorLockMode.Locked
+            && EventSystem.current != null
+            && EventSystem.current.IsPointerOverGameObject();
     }
 }
