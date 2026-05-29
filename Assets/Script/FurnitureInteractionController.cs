@@ -526,7 +526,13 @@ public class FurnitureInteractionController : MonoBehaviour
 
         foreach (Material material in renderer.sharedMaterials)
         {
-            if (material != null && material.name.Contains("Cartoon_Mat"))
+            if (material == null)
+            {
+                continue;
+            }
+
+            if (material.name.Contains("Cartoon_Mat") ||
+                material.name.Contains("M_LowPolyLivingRoom"))
             {
                 return true;
             }
