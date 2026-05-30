@@ -110,6 +110,11 @@ public class FurnitureInteractionController : MonoBehaviour
                 movable = renderer.gameObject.AddComponent<MovableFurniture>();
             }
 
+            if (movable.GetComponent<FurnitureID>() == null)
+            {
+                movable.gameObject.AddComponent<FurnitureID>();
+            }
+            
             if (registeredFurniture.Add(movable))
             {
                 movable.EnsureInteractionSetup(
