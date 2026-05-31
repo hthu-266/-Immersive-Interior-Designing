@@ -24,7 +24,7 @@ public class FurnitureInteractionController : MonoBehaviour
 
     [Header("Registration")]
     public bool autoRegisterSceneFurniture = true;
-    public bool onlyRegisterCartoonMaterialObjects = true;
+    public bool onlyRegisterCartoonMaterialObjects = false;
     public bool autoAssignFurnitureLayer = true;
     public bool createSelectionProxies = true;
 
@@ -165,6 +165,34 @@ public class FurnitureInteractionController : MonoBehaviour
         selectedFurniture.Rotate(degrees);
         ClampSelectedToRoom();
         UpdateStatus();
+    }
+
+    public void DeleteSelected()
+    {
+        if (selectedFurniture == null)
+        {
+            return;
+        }
+
+        MovableFurniture furnitureToDelete = selectedFurniture;
+        GameObject objectToDelete = furnitureToDelete.gameObject;
+
+        furnitureToDelete.SetSelected(false);
+        furnitureToDelete.EndMove();
+        selectedFurniture = null;
+        SetDragging(false);
+
+        SelectionChanged?.Invoke(null);
+        UpdateStatus();
+
+        if (Application.isPlaying)
+        {
+            Destroy(objectToDelete);
+        }
+        else
+        {
+            DestroyImmediate(objectToDelete);
+        }
     }
 
     public void ClampAllFurnitureToRoom()
@@ -504,6 +532,8 @@ public class FurnitureInteractionController : MonoBehaviour
 
         if (renderer.GetComponentInParent<FloorController>() != null ||
             renderer.GetComponentInParent<RoomBoundary>() != null ||
+            renderer.GetComponentInParent<FurniturePreviewObject>() != null ||
+            renderer.GetComponentInParent<FirstPersonMovement>() != null ||
             renderer.GetComponentInParent<Canvas>() != null)
         {
             return false;

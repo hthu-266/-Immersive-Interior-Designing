@@ -9,15 +9,25 @@ public class FurnitureID : MonoBehaviour
 
     public string UniqueID => uniqueID;
 
+    void Awake()
+    {
+        EnsureUniqueID();
+    }
+
 #if UNITY_EDITOR
 
     void OnValidate()
+    {
+        EnsureUniqueID();
+    }
+
+#endif
+
+    void EnsureUniqueID()
     {
         if (string.IsNullOrEmpty(uniqueID))
         {
             uniqueID = Guid.NewGuid().ToString();
         }
     }
-
-#endif
 }

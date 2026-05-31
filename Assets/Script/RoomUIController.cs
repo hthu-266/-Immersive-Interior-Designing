@@ -13,6 +13,7 @@ public class RoomUIController : MonoBehaviour
 
     [Header("Runtime UI")]
     public bool buildMissingControls = true;
+    public bool createDeleteButtonOnCanvas = true;
     public TMP_Text statusText;
     public TMP_Text floorPresetLabel;
     public Button previousFloorButton;
@@ -21,6 +22,7 @@ public class RoomUIController : MonoBehaviour
     public Button rotateLeftButton;
     public Button rotateRightButton;
     public Button clearSelectionButton;
+    public Button deleteSelectedButton;
 
     [Header("Interaction")]
     public FurnitureInteractionController interactionController;
@@ -42,6 +44,8 @@ public class RoomUIController : MonoBehaviour
             BuildRuntimeControls();
         }
 
+        ResolveSceneDeleteButton();
+        EnsureDeleteButton();
         WireRuntimeControls();
         RefreshUI();
     }
@@ -144,6 +148,17 @@ public class RoomUIController : MonoBehaviour
         RefreshUI();
     }
 
+    public void OnDeleteSelected()
+    {
+        if (interactionController == null || interactionController.SelectedFurniture == null)
+        {
+            return;
+        }
+
+        interactionController.DeleteSelected();
+        RefreshUI();
+    }
+
     void ResolveReferences()
     {
         if (floorController == null)
@@ -162,6 +177,22 @@ public class RoomUIController : MonoBehaviour
         if (interactionController == null)
         {
             interactionController = GetComponent<FurnitureInteractionController>();
+        }
+
+        if (interactionController == null)
+        {
+            interactionController = FindFirstObjectByType<FurnitureInteractionController>();
+        }
+
+        if (interactionController == null)
+        {
+            interactionController = gameObject.AddComponent<FurnitureInteractionController>();
+        }
+
+        if (interactionController == null)
+        {
+            Debug.LogError("RoomUIController could not create a FurnitureInteractionController.", this);
+            return;
         }
 
         interactionController.floorController = floorController;
@@ -244,6 +275,7 @@ public class RoomUIController : MonoBehaviour
         rotateRightButton = CreateButton(rotateRow, "Rotate Right", "Rotate +");
 
         clearSelectionButton = CreateButton(panel, "Deselect Furniture", "Deselect");
+        deleteSelectedButton = CreateButton(panel, "Delete Selected Furniture", "Delete");
     }
 
     RectTransform CreatePanel(Transform parent)
@@ -255,7 +287,7 @@ public class RoomUIController : MonoBehaviour
         panel.anchorMax = new Vector2(1f, 1f);
         panel.pivot = new Vector2(1f, 1f);
         panel.anchoredPosition = new Vector2(-16f, -16f);
-        panel.sizeDelta = new Vector2(260f, 230f);
+        panel.sizeDelta = new Vector2(260f, 276f);
 
         Image image = panelObject.GetComponent<Image>();
         image.color = new Color(0.08f, 0.09f, 0.1f, 0.82f);
@@ -342,6 +374,94 @@ public class RoomUIController : MonoBehaviour
         return button;
     }
 
+    void EnsureDeleteButton()
+    {
+        if (deleteSelectedButton != null)
+        {
+            return;
+        }
+
+        if (!createDeleteButtonOnCanvas)
+        {
+            return;
+        }
+
+        Transform parent = clearSelectionButton != null
+            ? clearSelectionButton.transform.parent
+            : null;
+
+        if (parent == null)
+        {
+            return;
+        }
+
+        deleteSelectedButton = CreateButton(parent, "Delete Selected Furniture", "Delete");
+        deleteSelectedButton.transform.SetSiblingIndex(clearSelectionButton.transform.GetSiblingIndex() + 1);
+    }
+
+    void ResolveSceneDeleteButton()
+    {
+        if (deleteSelectedButton != null)
+        {
+            return;
+        }
+
+        Transform preferredRoot = clearSelectionButton != null
+            ? clearSelectionButton.transform.parent
+            : null;
+
+        deleteSelectedButton = FindDeleteButton(preferredRoot);
+        if (deleteSelectedButton != null)
+        {
+            return;
+        }
+
+        Canvas canvas = GetComponentInParent<Canvas>();
+        if (canvas == null)
+        {
+            canvas = FindFirstObjectByType<Canvas>();
+        }
+
+        deleteSelectedButton = canvas != null
+            ? FindDeleteButton(canvas.transform)
+            : FindDeleteButton(null);
+    }
+
+    Button FindDeleteButton(Transform root)
+    {
+        Button[] buttons = root != null
+            ? root.GetComponentsInChildren<Button>(true)
+            : FindObjectsByType<Button>(FindObjectsSortMode.None);
+
+        foreach (Button button in buttons)
+        {
+            if (button == null || button == clearSelectionButton)
+            {
+                continue;
+            }
+
+            if (IsDeleteButtonName(button.gameObject.name))
+            {
+                return button;
+            }
+        }
+
+        return null;
+    }
+
+    bool IsDeleteButtonName(string objectName)
+    {
+        if (string.IsNullOrWhiteSpace(objectName))
+        {
+            return false;
+        }
+
+        string lowerName = objectName.ToLowerInvariant();
+        return lowerName.Contains("delete") ||
+            lowerName.Contains("remove") ||
+            lowerName.Contains("xoa");
+    }
+
     void WireRuntimeControls()
     {
         if (interactionController != null)
@@ -383,6 +503,12 @@ public class RoomUIController : MonoBehaviour
         {
             clearSelectionButton.onClick.RemoveListener(OnClearSelection);
             clearSelectionButton.onClick.AddListener(OnClearSelection);
+        }
+
+        if (deleteSelectedButton != null)
+        {
+            deleteSelectedButton.onClick.RemoveListener(OnDeleteSelected);
+            deleteSelectedButton.onClick.AddListener(OnDeleteSelected);
         }
     }
 
@@ -431,6 +557,11 @@ public class RoomUIController : MonoBehaviour
         if (clearSelectionButton != null)
         {
             clearSelectionButton.interactable = interactable;
+        }
+
+        if (deleteSelectedButton != null)
+        {
+            deleteSelectedButton.interactable = interactable;
         }
     }
 

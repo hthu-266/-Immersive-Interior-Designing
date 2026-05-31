@@ -25,6 +25,12 @@ public class FirstPersonLook : MonoBehaviour
     public float maxTopDownOrthographicSize = 30f;
     public float roomFitPadding = 1f;
 
+    [Header("Top Down Pan")]
+    public bool enableMiddleMousePan = true;
+    public float middleMousePanSpeed = 1f;
+    public bool constrainPanToRoom = true;
+    public float panBoundaryPadding = 0f;
+
     [Header("Zoom Settings")]
     public float zoomSensitivity = 5f;
     public float minFOV = 30f;
@@ -39,8 +45,11 @@ public class FirstPersonLook : MonoBehaviour
     Camera topDownCamera;
     bool isTopDownView;
     bool hasFittedTopDownSize;
+    bool isTopDownPanning;
     Vector2 velocity;
     Vector2 frameVelocity;
+    Vector3 topDownPanOffset;
+    Vector3 lastPanMousePosition;
     FirstPersonMovement movementScript;
     FloorController floorController;
 
@@ -90,6 +99,7 @@ public class FirstPersonLook : MonoBehaviour
     {
         HandleViewToggle();
         HandleZoom();
+        HandleTopDownPan();
 
         if (isTopDownView)
         {
@@ -206,6 +216,50 @@ public class FirstPersonLook : MonoBehaviour
         UpdateCursorState();
     }
 
+    void HandleTopDownPan()
+    {
+        if (!isTopDownView || !enableMiddleMousePan || topDownCamera == null)
+        {
+            isTopDownPanning = false;
+            return;
+        }
+
+        if (Input.GetMouseButtonDown(2))
+        {
+            if (IsPointerOverUI())
+            {
+                return;
+            }
+
+            isTopDownPanning = true;
+            lastPanMousePosition = Input.mousePosition;
+        }
+
+        if (Input.GetMouseButtonUp(2))
+        {
+            isTopDownPanning = false;
+        }
+
+        if (!isTopDownPanning || !Input.GetMouseButton(2))
+        {
+            return;
+        }
+
+        Vector3 currentMousePosition = Input.mousePosition;
+        Vector3 screenDelta = currentMousePosition - lastPanMousePosition;
+        lastPanMousePosition = currentMousePosition;
+
+        if (screenDelta.sqrMagnitude < 0.01f)
+        {
+            return;
+        }
+
+        Vector3 worldPan = ScreenDeltaToTopDownPan(screenDelta);
+        topDownPanOffset += worldPan * Mathf.Max(0f, middleMousePanSpeed);
+        ClampTopDownPanOffset();
+        ApplyTopDownCameraTransform();
+    }
+
     void CreateTopDownCameraIfNeeded()
     {
         if (topDownCamera != null || firstPersonCamera == null)
@@ -256,6 +310,11 @@ public class FirstPersonLook : MonoBehaviour
         {
             movementScript.enabled = !isTopDownView;
         }
+
+        if (!isTopDownView)
+        {
+            isTopDownPanning = false;
+        }
     }
 
     void ApplyTopDownProjection()
@@ -287,6 +346,12 @@ public class FirstPersonLook : MonoBehaviour
 
     Vector3 GetTopDownAnchor()
     {
+        ClampTopDownPanOffset();
+        return GetTopDownBaseAnchor() + topDownPanOffset;
+    }
+
+    Vector3 GetTopDownBaseAnchor()
+    {
         if (floorController == null)
         {
             floorController = FindFirstObjectByType<FloorController>();
@@ -305,6 +370,66 @@ public class FirstPersonLook : MonoBehaviour
         }
 
         return transform.position;
+    }
+
+    Vector3 ScreenDeltaToTopDownPan(Vector3 screenDelta)
+    {
+        Vector3 screenRight = Vector3.ProjectOnPlane(topDownCamera.transform.right, Vector3.up);
+        Vector3 screenUp = Vector3.ProjectOnPlane(topDownCamera.transform.up, Vector3.up);
+
+        if (screenRight.sqrMagnitude < 0.0001f)
+        {
+            screenRight = Vector3.right;
+        }
+
+        if (screenUp.sqrMagnitude < 0.0001f)
+        {
+            screenUp = Vector3.forward;
+        }
+
+        screenRight.Normalize();
+        screenUp.Normalize();
+
+        float worldUnitsPerPixel = GetTopDownWorldUnitsPerPixel();
+        return (-screenRight * screenDelta.x - screenUp * screenDelta.y) * worldUnitsPerPixel;
+    }
+
+    float GetTopDownWorldUnitsPerPixel()
+    {
+        int screenHeight = Mathf.Max(1, Screen.height);
+
+        if (topDownCamera.orthographic)
+        {
+            return topDownCamera.orthographicSize * 2f / screenHeight;
+        }
+
+        float height = Mathf.Clamp(Mathf.Abs(topDownOffset.y), minHeight, maxHeight);
+        float verticalWorldSize = 2f * height * Mathf.Tan(topDownCamera.fieldOfView * 0.5f * Mathf.Deg2Rad);
+        return verticalWorldSize / screenHeight;
+    }
+
+    void ClampTopDownPanOffset()
+    {
+        if (!constrainPanToRoom)
+        {
+            return;
+        }
+
+        if (floorController == null)
+        {
+            floorController = FindFirstObjectByType<FloorController>();
+        }
+
+        if (floorController == null)
+        {
+            return;
+        }
+
+        Vector3 baseAnchor = GetTopDownBaseAnchor();
+        Vector3 unclampedAnchor = baseAnchor + topDownPanOffset;
+        Vector3 clampedAnchor = floorController.ClampPointToRoom(unclampedAnchor, Mathf.Max(0f, panBoundaryPadding));
+        topDownPanOffset = clampedAnchor - baseAnchor;
+        topDownPanOffset.y = 0f;
     }
 
     void FitTopDownSizeToRoom()
