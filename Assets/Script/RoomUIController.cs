@@ -161,7 +161,7 @@ public class RoomUIController : MonoBehaviour
     {
         if (interactionController == null)
         {
-            interactionController = gameObject.AddComponent<FurnitureInteractionController>();
+            interactionController = GetComponent<FurnitureInteractionController>();
         }
 
         interactionController.floorController = floorController;

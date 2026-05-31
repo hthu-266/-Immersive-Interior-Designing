@@ -537,7 +537,8 @@ public class FurnitureInteractionController : MonoBehaviour
             }
 
             if (material.name.Contains("Cartoon_Mat") ||
-                material.name.Contains("M_LowPolyLivingRoom"))
+                material.name.Contains("M_LowPolyLivingRoom") ||
+                material.name.Contains("(Mat)Gradient"))
             {
                 return true;
             }
